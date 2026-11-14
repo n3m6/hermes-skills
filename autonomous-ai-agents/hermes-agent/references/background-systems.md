@@ -36,58 +36,13 @@ the `cronjob` tool, the `hermes cron` CLI (`list`, `add`, `edit`,
   job), `context_from` (chain job A's output into job B), `workdir`
   (run in a specific dir with its `AGENTS.md` / `CLAUDE.md` loaded),
   multi-platform delivery.
-- **Timeouts:** a `no_agent` **script** job gets a wall-clock budget of 3600 s
-  (`_DEFAULT_SCRIPT_TIMEOUT`); an agent-driven run is bounded by an *inactivity*
-  window, `HERMES_CRON_TIMEOUT` (default 600 s, `0` = unlimited) — not a fixed
-  wall-clock cap. Read the constants in `cron/scheduler.py` before designing
-  around them instead of trusting a remembered number.
-- **Invariants:** `.tick.lock` file prevents duplicate ticks across processes,
-  cron sessions pass `skip_memory=True` by default, and cron deliveries are
-  framed with a header/footer instead of being mirrored into the target
-  gateway session (keeps role alternation intact).
+- **Invariants:** 3-minute hard interrupt per run, `.tick.lock` file
+  prevents duplicate ticks across processes, cron sessions pass
+  `skip_memory=True` by default, and cron deliveries are framed with a
+  header/footer instead of being mirrored into the target gateway
+  session (keeps role alternation intact).
 
 User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
-
-#### When the job occasionally needs judgment
-
-Keep the job `no_agent` (zero tokens, deterministic) and let the script spawn
-`hermes chat --oneshot ... --query-file <brief>` only on the branch that needs
-reasoning, then verify the outcome from state rather than trusting the agent's
-`RESULT:`/`PUSHED:` lines. Full recipe, budget rules, brief contract and the
-fake-binary test matrix: `references/cron-agent-escalation.md`.
-
-#### Changing a backup job's cadence
-
-A `no_agent` backup job's schedule and its script's retention logic are one
-system, not two knobs. Retuning only the schedule leaves tiers that look
-healthy but never receive another image.
-
-- **Grep for date-keyed promotion before touching the schedule:**
-  `grep -nE 'weekday|day ==|keep|prune|copy2' <script>`. Promotion keyed to
-  `weekday() == 6` (weekly) or `day == 1` (monthly) only fires when the run
-  happens to land on that date; under a Monday-only cadence the weekly tier
-  freezes and the monthly tier sits still for years. Say so before flipping
-  the schedule, not after.
-- **Make promotion cadence-agnostic** instead: treat the run directory as the
-  primary tier, and promote when no image exists for the current month
-  (`f.startswith(NAME + today.strftime("%Y%m"))`). Then the keep counts are the
-  only thing tied to frequency.
-- **Promote by hard link** (`os.link`, falling back to `shutil.copy2` on
-  `OSError` for cross-device): the bytes already exist, so the second tier
-  costs zero disk. Copies double the archive size for identical content.
-- **Retiring a tier:** move its images into the survivor, dedupe by date only
-  when the bytes match (size gate, then chunk compare); a same-date image with
-  different content stays put and the status line WARNs. Never delete a backup
-  that is not provably identical.
-- **Verify in a sandbox before the real run:** temp `HOME`, fake `hermes` on
-  `PATH` that writes a zip containing `config.yaml` + `state.db`, pre-seeded
-  tier dirs, `HERMES_BACKUP_FORCE=1`. Assert migration counts, pruning to the
-  new keep, the monthly image sharing an inode with the weekly one, the
-  skip-if-already-today path exiting 0, and a failing launcher exiting 1 with
-  nothing promoted.
-- **After `action=update`, re-`list`** and confirm `next_run_at` is the intended
-  weekday. Renaming the job? Grep the script and its `RESTORE.txt` template for
-  the old name — they are user-facing docs that go stale silently.
 
 ### Curator (skill lifecycle)
 
@@ -143,4 +98,6 @@ sessions still have zero `kanban_*` schema footprint unless configured.
   `HERMES_KANBAN_BOARD` pinned in env); tenant is a soft namespace
   within a board for workspace-path + memory-key isolation.
 
+Project-linked tasks (worktree + branch by default under a Project's primary folder, when it has one):
+`references/projects-and-folders.md`.
 User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban

@@ -1,7 +1,7 @@
 ---
 name: grounded-citations
 description: "Ground answers and documents in cited, verifiable sources."
-version: 1.1.0
+version: 1.2.0
 author: Hermes Agent + Teknium
 license: MIT
 platforms: [linux, macos, windows]
@@ -9,7 +9,7 @@ metadata:
   hermes:
     tags: [Research, Citations, Grounding, Sources, Web, Reports]
     category: research
-    related_skills: [arxiv, pdf]
+    related_skills: [arxiv, pdf, reddit-reading, rss-feeds, youtube-content]
 ---
 
 # Grounded Citations
@@ -48,7 +48,7 @@ Mention a URL only if the user would plausibly want the link.
 
 None beyond the standard toolset. `scripts/sources.py` is stdlib-only Python 3.
 Retrieval comes from whatever is configured: `web_search`, `web_extract`,
-`browser_navigate`, or `terminal` (curl, CLIs).
+`browser_exec`, or `terminal` (curl, CLIs).
 
 Ledger location: `$HERMES_HOME/cache/citations/ledger.json` (profile-aware).
 Override per task with `--ledger <path>` or `HERMES_CITATION_LEDGER`.
@@ -91,7 +91,7 @@ answer or document. Skip the reset when continuing work whose ids are already
 in a draft — reusing the ledger keeps the numbering stable.
 
 ② **Register every source at retrieval time.** After each `web_search` /
-`web_extract` / `browser_navigate` / fetch, pass the URLs to `sources.py add`
+`web_extract` / `browser_exec` / fetch, pass the URLs to `sources.py add`
 (or pipe the raw JSON through `sources.py ingest`). Do this *before* writing
 prose. Registering later, from memory, is the failure mode this skill exists to
 prevent.
@@ -115,8 +115,7 @@ Ice floats because it is less dense than liquid water.[1][2]
 the id → URL mapping is generated mechanically from the ledger, not retyped.
 For non-markdown targets pick the matching `--style` and follow
 `references/citation-formats.md` for placement (footnotes in docx, endnotes in
-PDF/LaTeX, a Sources slide in decks, per-page source lists in wiki output; for
-Google Docs keep the `[n]` markers and hyperlink each to its ledger URL).
+PDF/LaTeX, a Sources slide in decks, per-page source lists in wiki output).
 
 ⑤ **Verify before delivering** — `sources.py verify <draft>` exits non-zero on
 unknown ids, on a Sources block that disagrees with the ledger, or (with
@@ -126,6 +125,31 @@ unknown ids, on a Sources block that disagrees with the ledger, or (with
 sources, cite inline, end with the rendered `Sources:` list. For a short answer
 you may render the block from `sources.py render --only <ids>` instead of
 writing to a file.
+
+## Multi-Platform Sweeps
+
+"What are people saying about X" / "research X across the web" is not one
+`web_search`. Fan out across source types, collect in parallel, then synthesise
+with every claim attributed to the platform it came from:
+
+| Source type | Route | What it adds |
+|---|---|---|
+| Open web | `web_search` → `web_extract` | official docs, articles, announcements |
+| Community discussion | `reddit-reading` (`search`, `thread`) | real user experience, complaints, workarounds |
+| Blogs / releases / changelogs | `rss-feeds` (`read`, `discover`) | dated primary posts, version history |
+| Video | `youtube-content` | walkthroughs, demos, talks |
+| Code | `terminal` with `gh search repos` / `gh search issues` | implementations, open bugs |
+| X/Twitter | `xurl` (needs API access) | announcements, developer chatter |
+
+The `reddit-reading` and `rss-feeds` skills are optional. If absent, install with
+`hermes skills install official/social-media/reddit-reading` or
+`hermes skills install official/research/rss-feeds` before using them.
+
+Register every URL from every route in the ledger as it arrives (step ②). Keep
+opinion and measurement apart: a Reddit thread is evidence that users *report*
+something, not that it is true; pair it with a primary source or label it as
+sentiment. Report per-platform coverage gaps ("Reddit search returned nothing
+newer than March") rather than silently narrowing to what worked.
 
 ## Fact-Checking Mode
 
@@ -202,11 +226,6 @@ and read the `info: stats:` line to see the counts before picking a number.
 - **Citing a search snippet as if you read the page.** A `web_search`
   description supports only what it literally says. Cite the extracted page
   when the claim needs the body — `web_extract` it first.
-- **When the body is not in the extract, fetch the page HTML.** A search result
-  is a pointer, not the article. Fetch with `curl -L -A '<browser UA>'`, slice
-  the page's article container, and strip tags with the stdlib `html.parser`
-  when bs4/lxml are absent; then register the page URL and cite the body. Do not
-  cite a snippet for a claim that needs the article.
 - **Over-citing.** Three ids on a sentence is the ceiling; a citation on every
   clause makes text unreadable and hides which source carries the load.
 - **Citing the ledger in code/config artifacts.** Source comments belong in

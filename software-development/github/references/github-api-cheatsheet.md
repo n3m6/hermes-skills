@@ -127,6 +127,11 @@ Most list endpoints support:
 - `?page=2` for next page
 - Check `Link` header for `rel="next"` URL
 
+With `gh api --paginate --jq 'FILTER'` the filter is applied **once per
+page**, so write it per-response: `.[] | select(...)`, never a bare
+`select(...)` (that fails with "expected an object but got: array"). Use
+`--slurp` when you need one merged array to aggregate over.
+
 ## Rate Limits
 
 - Authenticated: 5,000 requests/hour

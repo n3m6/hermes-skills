@@ -22,9 +22,31 @@ git config --global credential.helper 2>/dev/null || echo "no git credential hel
 **Decision tree:**
 1. If `gh auth status` shows authenticated → you're good, use `gh` for everything
 2. If `gh` is installed but not authenticated → use "gh auth" method below
-3. If `gh` is not installed → use "git-only" method below (no sudo needed)
+3. If `gh` is not installed → install it user-locally first ("Installing gh
+   Without Root" below); use git-only only if installing is impossible
 
 ---
+
+## Installing gh Without Root
+
+`gh` needs no package manager and no sudo — the release tarball unpacks to a
+single binary. Prefer this over falling back to git-only: gh gives you API
+access, the device flow, and `gh auth setup-git` in one step.
+
+```bash
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VER=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
+  | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)
+curl -fsSL "https://github.com/cli/cli/releases/download/v${VER}/gh_${VER}_linux_${ARCH}.tar.gz" -o /tmp/gh.tar.gz
+tar xzf /tmp/gh.tar.gz -C /tmp
+mkdir -p ~/.local/bin && cp "/tmp/gh_${VER}_linux_${ARCH}/bin/gh" ~/.local/bin/gh
+chmod +x ~/.local/bin/gh && ~/.local/bin/gh --version
+```
+
+`~/.local/bin` is normally on PATH; if not, add
+`export PATH="$HOME/.local/bin:$PATH"` to the shell rc. macOS user-level
+alternative: `brew install gh` (no sudo). Confirm the binary runs before
+starting a login flow — a half-installed gh fails with confusing auth errors.
 
 ## Method 1: Git-Only Authentication (No gh, No sudo)
 
@@ -160,7 +182,7 @@ gh auth login
 
 ### Manual OAuth Device Flow (no TTY needed — PROVEN)
 
-Fallback when interactive login is impractical (agent-driven sessions, no browser launch, headless). Uses gh's public OAuth client id; the user just enters a code at github.com/login/device. Scopes: `repo,read:org,gist` is the documented minimum for `gh auth login --with-token`; append `,workflow` only if you need to push workflow files.
+Fallback when interactive login is impractical (agent-driven sessions, no browser launch, headless). Uses gh's public OAuth client id; the user just enters a code at github.com/login/device. Scopes: `repo,read:org,gist` is the documented minimum for `gh auth login --with-token`; append `,workflow` only if you need to push workflow files. The token this yields is classic and broad — read "Scope reality check" below before wiring it to a machine that holds private repos.
 
 ```bash
 # 1. Request a device code (gh's official client_id)
@@ -234,11 +256,67 @@ gh auth setup-git
 
 If `--with-token` hangs here, use the hosts.yml fallback from the pitfall above.
 
-### Verify
+### Scope reality check (decide with the user, then state what was granted)
+
+The device flow uses gh's OAuth app, so the token is **classic-scope**:
+`repo` means every repo the user can already reach, across all orgs, with no
+per-repo narrowing — and it does not expire. It is stored in plaintext at
+`~/.config/gh/hosts.yml` (mode 600), and git reaches it through the
+`gh auth git-credential` helper.
+
+Tell the user these consequences rather than leaving them implicit:
+
+- Every Hermes agent on the machine — subagents, cron jobs, background
+  processes — runs as the same OS user and inherits this credential silently.
+- `repo` plus repo ADMIN permits pushes, branch deletion, repo settings, and
+  workflow edits (`workflow` scope). This flow does NOT grant `delete_repo`
+  or `admin:org`.
+- Anything an agent reads from a repo (files, issues) is a prompt-injection
+  surface carrying that same blast radius.
+
+If narrower access is wanted, use a fine-grained PAT
+(https://github.com/settings/tokens?type=beta) limited to named repos with
+Contents / Pull requests / Workflows write, and keep the broad OAuth token
+for interactive use. Confirm scope intent before wiring a broad token to a
+machine that holds private repos.
+
+### Verify: login is not reach
+
+`gh auth status` only proves a token exists. When asked whether agents can
+actually work on private repos from this machine, run a live check:
 
 ```bash
-gh auth status
+export PATH="$HOME/.local/bin:$PATH"
+
+# 1. what the token can see, split by visibility and write access
+gh api 'user/repos?per_page=100&affiliation=owner,collaborator,organization_member' \
+  --paginate --jq '.[] | select(.private) | .full_name' | wc -l
+gh api 'user/repos?per_page=100&affiliation=owner,collaborator,organization_member' \
+  --paginate --jq '.[] | select(.private and .permissions.push) | .full_name'
+
+# 2. per-repo permission
+gh repo view OWNER/REPO --json viewerPermission --jq .viewerPermission
+
+# 3. real private clone, non-interactive — proves the credential helper works
+GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/OWNER/REPO.git /tmp/probe
+git -C /tmp/probe rev-parse --short HEAD && rm -rf /tmp/probe
 ```
+
+Pitfalls that produce a false "no access" answer:
+
+- `gh repo list --json visibility` returns `PRIVATE` / `PUBLIC` uppercase, so
+  `select(.visibility=="private")` silently matches nothing. Use `isPrivate`
+  or `.private`.
+- `gh api --paginate --jq` runs the filter once per page, so a bare
+  `select(...)` fails with "expected an object but got: array". Filter with
+  `.[] | select(...)`.
+- An empty repo variable collapses the clone URL to `github.com/.git/` and
+  reports `remote: Not Found` — a symptom of the filter bug above, not a
+  permissions problem. Assert the variable is non-empty.
+
+Do not push a test commit to a live repo just to prove write access; ADMIN
+or `push` from the API is the evidence. Say explicitly that an actual push
+was not tested.
 
 ---
 
@@ -300,4 +378,4 @@ fi
 | `ssh: connect to host github.com port 22: Connection refused` | Try SSH over HTTPS port: add `Host github.com` with `Port 443` and `Hostname ssh.github.com` to `~/.ssh/config` |
 | Credentials not persisting | Check `git config --global credential.helper` — must be `store` or `cache` |
 | Multiple GitHub accounts | Use SSH with different keys per host alias in `~/.ssh/config`, or per-repo credential URLs |
-| `gh: command not found` + no sudo | Use git-only Method 1 above — no installation needed |
+| `gh: command not found` + no sudo | Install the release tarball into `~/.local/bin` ("Installing gh Without Root"); git-only Method 1 is the fallback |

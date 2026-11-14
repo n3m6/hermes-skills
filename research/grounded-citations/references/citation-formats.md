@@ -27,14 +27,14 @@ numeric markers and emit an endnotes section. For a bibliography-shaped report,
 Do not mix: either numeric `[n]` + a Sources section, or `\cite{}` + BibTeX.
 Two numbering systems in one document is worse than none.
 
-## Word (.docx, `docx` skill)
+## Word (.docx, `microsoft-office` skill)
 
 Real footnotes are preferred over inline brackets in prose documents intended
 for human editing — reviewers expect Word footnotes. Keep the ledger ids as the
 footnote numbers so `verify` still works on a markdown source-of-truth, and
 generate the .docx from that markdown.
 
-## Slides (.pptx, `powerpoint` skill)
+## Slides (.pptx, `microsoft-office` skill)
 
 Inline `[n]` in the bullet, one "Sources" slide at the end rendered with
 `--style plain`. Never put a URL in a body bullet — it wrecks the layout and
@@ -57,17 +57,6 @@ Hand off to the `grounded-citations` skill. Export with
 `--style bibtex` into `references.bib`, then follow that skill's citation
 verification (it greps `\cite{...}` against the .bib). The ledger's job ends at
 producing verified URL entries; venue formatting is that skill's domain.
-
-## Google Docs
-
-Keep the inline `[n]` markers and hyperlink each one to its ledger URL. Do not
-replace the number with the article title alone, and do not retype a URL: the
-label stays `[n]` so the numbering matches the ledger exactly. The Sources block
-lists only the cited ids, with the title as the link text. Build the formatted
-Doc with `google-workspace/references/formatted-docs.md` (one insert, then style
-by offsets), and verify by reading it back and counting
-`textRun.textStyle.link` runs — a batch that returned 200 is not proof that the
-links landed.
 
 ## Code and config artifacts
 

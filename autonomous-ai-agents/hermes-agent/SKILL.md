@@ -1,7 +1,7 @@
 ---
 name: hermes-agent
 description: "Use, configure, theme, extend, and orchestrate Hermes Agent."
-version: 3.2.0
+version: 3.3.0
 author: Hermes Agent + Teknium
 license: MIT
 platforms: [linux, macos, windows]
@@ -36,7 +36,7 @@ This skill is a concise operating guide, not the complete source of truth for ev
 
 Good verification targets, cheapest first:
 
-- **Every shipped feature, one line each: https://hermes-agent.nousresearch.com/docs/llms.txt.** Start here for any "can Hermes do X?" or "how do I do X?" — it indexes the entire documentation set with a link to the page that answers. It is generated from the docs tree on every build, so it is never behind the product. Fetch it with `curl -s https://hermes-agent.nousresearch.com/docs/llms.txt` — in this install `web_extract` is the DuckDuckGo **search-only** backend and returns an error, not page text, for a docs URL; keep `web_search` for searching and `curl` for reading. The whole documentation set in one file is at `/docs/llms-full.txt`.
+- **Every shipped feature, one line each: https://hermes-agent.nousresearch.com/docs/llms.txt.** Start here for any "can Hermes do X?" or "how do I do X?" — it indexes the entire documentation set with a link to the page that answers. It is generated from the docs tree on every build, so it is never behind the product. Fetch it with `web_extract`, or `curl -s https://hermes-agent.nousresearch.com/docs/llms.txt` when web tools are off. The whole documentation set in one file is at `/docs/llms-full.txt`.
 - CLI commands: `hermes --help`, `hermes <command> --help`, and `hermes_cli/main.py`
 - Source tree: https://github.com/NousResearch/hermes-agent
 
@@ -45,7 +45,7 @@ Never answer "Hermes can't do that" from memory. Hermes ships far more than this
 ## Quick Start
 
 ```bash
-# Install (shell installer — sets up uv, Python, the venv, and the launcher)
+# Install (shell installer — bootstraps PM, Python, dependencies, and the launcher)
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 
 # Interactive chat (default surface; set display.interface: tui to launch the Ink TUI instead)
@@ -97,12 +97,14 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 | AGENTS.md / .hermes.md / CLAUDE.md project rules | `references/project-context-files.md` |
 | Secret redaction, PII, approval modes, "reset permissions" | `references/security-privacy.md` |
 | Delegation, cron, curator, kanban | `references/background-systems.md` |
+| `hermes project` workspaces, multi-folder projects, desktop sidebar groups | `references/projects-and-folders.md` |
 | MCP servers (add, catalog, `hermes mcp`) | `references/native-mcp.md` |
 | Webhook routes and event-driven runs | `references/webhooks.md` |
 | A custom theme/skin ("synthwave theme", "change the gold ●") | `references/themes.md` + `templates/skin.yaml` |
 | A desktop app UI element (pane, widget, ⌘K command, page) | `references/desktop-plugins.md` + `templates/plugin.js` |
 | A live TUI panel or modal widget (ticker, clock, dashboard) | `references/tui-widgets.md` + `templates/clock.mjs` |
 | Pet mascots — install, select, scale, diagnose | `references/petdex.md` |
+| Sync/back up the skills library against a git repo | `references/skills-library-sync.md` |
 | Windows-specific issues (keybinds, WinError 10106, BOM) | `references/windows-quirks.md` |
 | Debugging: voice, tools missing, gateway, aux models | `references/troubleshooting.md` |
 | Contributing code: adding tools, slash commands, tests | `references/contributor-guide.md` |
@@ -113,12 +115,6 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 The reference list above is not the feature list — it is the set of topics that
 need more than their docs page. For everything else Hermes ships, fetch
 `llms.txt` and it maps the question to the page that answers it.
-
-## Project skills and `hermes skills trust`
-
-Repo-local skills in `<root>/.agents/skills` or `<root>/.hermes/skills` do **not** load by default — they are an injection vector from any clone. They load only when the enclosing git root is in `skills.trusted_project_dirs` (managed by `hermes skills trust|untrust [path]`), and then they **outrank same-named profile/bundled skills**. Each project `SKILL.md` is still run through the hub's `skills_guard` scanner on every content change; a `dangerous` verdict quarantines that skill (excluded from index, `skills_list`, `skill_view`, slash commands) — so a `git pull` cannot slip one in. The trust list and cwd are fixed at session start, so a trust decision never affects the session that made it; it applies to the next session started in that repo.
-
-Run `hermes skills trust` **with an explicit path** from inside an agent shell: with no path it resolves the project root from the *configured* cwd (`TERMINAL_CWD`, e.g. `$HOME`), not `os.getcwd()`, so it wrongly reports "Not inside a git checkout" even when you are standing in the repo.
 
 Two theming rules that hold even without loading the reference: **you apply skins yourself** (`hermes config set display.skin <name>` — every surface repaints live within ~a second; don't tell the user to run `/skin`), and **to tweak one color, edit the ACTIVE skin** (`hermes skin set <key> <hex>`) — never fork `default`, which drops the palette and resets the background.
 
@@ -147,23 +143,37 @@ terminal(command="hermes chat -q 'Set up CI/CD for ~/myapp'", background=true)
 
 ### Interactive PTY Mode (via tmux)
 
-Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
+Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning. `tmux send-keys -t agent1 'text' Enter` in one call submits: Hermes treats a lone Enter that ends a fast burst of input as a submit once input has stayed quiet for a quarter second, while the Enters inside a multi-line paste stay newlines. The recipes below send `Enter` as its own call after a short pause, which submits at once and does not depend on that timing. Both recipes wait for the `❯` input prompt (the default skin's symbol; use your skin's prompt symbol if you changed it) instead of a fixed sleep: a first start can take far longer than a few seconds, and input sent before the prompt is lost.
 
 ```
 # Start
 terminal(command="tmux new-session -d -s agent1 -x 120 -y 40 'hermes'", timeout=10)
 
-# Wait for startup, then send a message
-terminal(command="sleep 8 && tmux send-keys -t agent1 'Build a FastAPI auth service' Enter", timeout=15)
+# Wait for the input prompt (❯), then send a message
+terminal(command="for i in $(seq 90); do tmux capture-pane -t agent1 -p | grep -q '❯' && break; sleep 1; done; tmux capture-pane -t agent1 -p | grep -q '❯' && tmux send-keys -t agent1 'Build a FastAPI auth service' && sleep 0.5 && tmux send-keys -t agent1 Enter", timeout=100)
 
 # Read output
 terminal(command="sleep 20 && tmux capture-pane -t agent1 -p", timeout=5)
 
 # Send follow-up
-terminal(command="tmux send-keys -t agent1 'Add rate limiting middleware' Enter", timeout=5)
+terminal(command="tmux send-keys -t agent1 'Add rate limiting middleware' && sleep 0.5 && tmux send-keys -t agent1 Enter", timeout=5)
 
 # Exit
-terminal(command="tmux send-keys -t agent1 '/exit' Enter && sleep 2 && tmux kill-session -t agent1", timeout=10)
+terminal(command="tmux send-keys -t agent1 '/exit' && sleep 0.5 && tmux send-keys -t agent1 Enter && sleep 2 && tmux kill-session -t agent1", timeout=10)
+```
+
+**No tmux** (`command -v tmux` prints nothing, e.g. an older Hermes Docker image): run Hermes as a PTY background process and drive it with `process_manage`. Stdin only exists with `pty=true`. `submit` sends the text plus the Enter key a keyboard sends, and Hermes submits it the same way as a one-call tmux `send-keys`. The recipe below instead `write`s the text, pauses, and `write`s the Enter (`"\r"`) on its own, which does not depend on burst timing. Wait for the input prompt before the first write: during startup Hermes queries the terminal's colours and then flushes its input, so text written before the prompt appears is silently dropped.
+
+```
+terminal(command="hermes", background=true, pty=true)   # returns session_id
+process_manage(action="log", session_id="<id>", limit=20)   # repeat, with terminal(command="sleep 1") between, until the ❯ prompt line shows
+process_manage(action="write", session_id="<id>", data="Build a FastAPI auth service")
+terminal(command="sleep 0.5")
+process_manage(action="write", session_id="<id>", data="\r")
+process_manage(action="log", session_id="<id>", limit=40)   # read the screen
+process_manage(action="write", session_id="<id>", data="/exit")
+terminal(command="sleep 0.5")
+process_manage(action="write", session_id="<id>", data="\r")
 ```
 
 ### Multi-Agent Coordination
@@ -171,15 +181,15 @@ terminal(command="tmux send-keys -t agent1 '/exit' Enter && sleep 2 && tmux kill
 ```
 # Agent A: backend
 terminal(command="tmux new-session -d -s backend -x 120 -y 40 'hermes -w'", timeout=10)
-terminal(command="sleep 8 && tmux send-keys -t backend 'Build REST API for user management' Enter", timeout=15)
+terminal(command="for i in $(seq 90); do tmux capture-pane -t backend -p | grep -q '❯' && break; sleep 1; done; tmux capture-pane -t backend -p | grep -q '❯' && tmux send-keys -t backend 'Build REST API for user management' && sleep 0.5 && tmux send-keys -t backend Enter", timeout=100)
 
 # Agent B: frontend
 terminal(command="tmux new-session -d -s frontend -x 120 -y 40 'hermes -w'", timeout=10)
-terminal(command="sleep 8 && tmux send-keys -t frontend 'Build React dashboard for user management' Enter", timeout=15)
+terminal(command="for i in $(seq 90); do tmux capture-pane -t frontend -p | grep -q '❯' && break; sleep 1; done; tmux capture-pane -t frontend -p | grep -q '❯' && tmux send-keys -t frontend 'Build React dashboard for user management' && sleep 0.5 && tmux send-keys -t frontend Enter", timeout=100)
 
 # Check progress, relay context between them
 terminal(command="tmux capture-pane -t backend -p | tail -30", timeout=5)
-terminal(command="tmux send-keys -t frontend 'Here is the API schema from the backend agent: ...' Enter", timeout=5)
+terminal(command="tmux send-keys -t frontend 'Here is the API schema from the backend agent: ...' && sleep 0.5 && tmux send-keys -t frontend Enter", timeout=5)
 ```
 
 ### Session Resume
@@ -198,7 +208,7 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 - **Use `-w` (worktree mode)** when spawning agents that edit code — prevents git conflicts
 - **Set timeouts** for one-shot mode — complex tasks can take 5-10 minutes
 - **Use `hermes chat -q` for fire-and-forget** — no PTY needed
-- **Use tmux for interactive sessions** — raw PTY mode has `\r` vs `\n` issues with prompt_toolkit
+- **Prefer tmux for interactive sessions when it is installed** — `capture-pane` reads the rendered screen; the PTY-background fallback only has the raw output log
 - **For scheduled tasks**, use the `cronjob` tool instead of spawning — handles delivery and retry
 - **"delegate_task is capped at N" reports** — see `references/delegate-task-concurrency-diagnosis.md`. Three real cap paths in Hermes; if none fired, the model is self-limiting and rationalising it as "the runtime caps."
 - **"Can $external_app use my Nous Portal subscription / OAuth?"** — see `references/portal-auth-for-third-party-apps.md`. Walk the user through three layers (plugin-vs-app, what Portal actually exposes, local-broker-proxy option).

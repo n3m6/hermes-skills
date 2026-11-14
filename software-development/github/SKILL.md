@@ -1,7 +1,7 @@
 ---
 name: github
 description: "GitHub via gh CLI: PRs, issues, reviews, repos, auth."
-version: 2.0.0
+version: 2.1.0
 author: Ben Barclay (benbarclay), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -48,6 +48,9 @@ Supporting assets: `scripts/gh-env.sh` + `scripts/git-credential-token.py`
   `gh pr view --comments` — decisions live in threads, not titles.
 - Sweep for duplicates before creating anything:
   `gh pr list --search` / `gh issue list --search`.
+- Capability questions ("can agents reach my private repos?") are answered
+  from a live check — `viewerPermission` plus a real non-interactive clone —
+  never from token scopes alone; state what was not tested.
 
 ## Verification
 
