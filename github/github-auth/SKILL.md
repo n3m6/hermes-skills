@@ -33,9 +33,20 @@ git config --global credential.helper 2>/dev/null || echo "no git credential hel
 ```
 
 **Decision tree:**
-1. If `gh auth status` shows authenticated → you're good, use `gh` for everything
+1. If `gh auth status` shows authenticated → use `gh` for API work, then wire git to that token (§ "gh is already logged in" below) instead of minting a PAT
 2. If `gh` is installed but not authenticated → use "gh auth" method below
 3. If `gh` is not installed → use "git-only" method below (no sudo needed)
+
+**Authenticated `gh` does not mean `git` can push.** `gh auth status` also reports a
+"Git operations protocol" line (often `ssh`); that is gh's own preference, not git's
+configuration. Always check the two things git itself will use before you promise a
+push will work:
+
+```bash
+git config --get-all credential.helper
+git config --get-all 'credential.https://github.com.helper'
+git ls-remote <remote-url>   # empty output + exit 0 = reachable and unauthenticated-OK
+```
 
 ---
 
@@ -184,6 +195,32 @@ gh auth setup-git
 gh auth status
 ```
 
+#### gh is already logged in? Wire git to it instead of minting a PAT
+
+When `gh auth status` is already green with a `repo`-scoped token, the user needs **no
+new token**. One command points git's HTTPS credential lookup at gh's token:
+
+```bash
+gh auth setup-git
+# writes, globally:  credential.https://github.com.helper = !/abs/path/to/gh auth git-credential
+git config --get-all 'credential.https://github.com.helper'   # confirm
+```
+
+Then `git push` over an `https://github.com/...` remote authenticates silently.
+Verify it in the same stripped environment a cron job or service would have — a
+helper that only works on an interactive `PATH` fails at 03:00:
+
+```bash
+printf 'protocol=https\nhost=github.com\n\n' | \
+  env -i HOME="$HOME" PATH="$HOME/.local/bin:/usr/bin:/bin" git credential fill \
+  | sed -E 's/^(password=).*/\1<len-check>/'
+# expect: username=<account>, password=<40 chars for gho_ tokens>
+```
+
+Note the scope: `setup-git` writes to **global** git config, so every `https://github.com`
+push from this account uses that token from then on. If the user wants it scoped to one
+repo, unset the global key and set the same value with `git config --local`.
+
 ---
 
 ## Using the GitHub API Without gh
@@ -234,11 +271,52 @@ fi
 
 ---
 
+## Before the first push to a brand-new repo
+
+A `.gitignore` only governs *future* commits. Anything already in the initial commit
+stays in history and is published with the first push — adding `git rm --cached` plus a
+`.gitignore` afterwards leaves the bytes in the repo and in every clone. Check before
+pushing, not after:
+
+```bash
+# what will the world actually see, across all history (not just the worktree)?
+git log --all --name-only --pretty=format: | sort -u | grep -E '^(\.usage|\.cache|node_modules|\.env)' 
+git count-objects -vH | grep size-pack
+```
+
+If nothing has been pushed yet (`git ls-remote origin` returns empty / `gh repo view
+--json isEmpty` says `true`), rewrite instead of stacking a delete commit on top:
+
+```bash
+git checkout --orphan __clean
+git add -A
+git commit -m "Initial import"
+git branch -M __clean main       # force-rename over the old branch
+```
+
+Then confirm the ignored paths are gone from history (`git log --all --name-only`
+again) and, after the push, from the remote: `gh api repos/<owner>/<repo>/contents/<path>`
+should return 404. Say plainly that history was rewritten — a single squashed import
+commit is normal for a never-pushed repo, and silently collapsing commits on a repo
+someone else already has is not.
+
+### Verify a push landed
+
+```bash
+git rev-parse HEAD
+git ls-remote origin refs/heads/<branch>        # same sha or it did not land
+gh repo view <owner>/<repo> --json isEmpty,defaultBranchRef,pushedAt
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
 | `git push` asks for password | GitHub disabled password auth. Use a personal access token as the password, or switch to SSH |
+| `git push` prompts for a password even though `gh auth status` is green | gh's login covers gh only — run `gh auth setup-git` (or set `credential.https://github.com.helper` yourself) |
+| `ssh -T git@github.com` → `Permission denied (publickey)` while keys exist | The keys in `~/.ssh` belong to per-repo deploy-key host aliases, not the account. Switch the remote to HTTPS and use the gh helper, or add a key to the account |
 | `remote: Permission to X denied` | Token may lack `repo` scope — regenerate with correct scopes |
 | `fatal: Authentication failed` | Cached credentials may be stale — run `git credential reject` then re-authenticate |
 | `ssh: connect to host github.com port 22: Connection refused` | Try SSH over HTTPS port: add `Host github.com` with `Port 443` and `Hostname ssh.github.com` to `~/.ssh/config` |

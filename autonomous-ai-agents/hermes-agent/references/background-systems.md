@@ -36,13 +36,25 @@ the `cronjob` tool, the `hermes cron` CLI (`list`, `add`, `edit`,
   job), `context_from` (chain job A's output into job B), `workdir`
   (run in a specific dir with its `AGENTS.md` / `CLAUDE.md` loaded),
   multi-platform delivery.
-- **Invariants:** 3-minute hard interrupt per run, `.tick.lock` file
-  prevents duplicate ticks across processes, cron sessions pass
-  `skip_memory=True` by default, and cron deliveries are framed with a
-  header/footer instead of being mirrored into the target gateway
-  session (keeps role alternation intact).
+- **Timeouts:** a `no_agent` **script** job gets a wall-clock budget of 3600 s
+  (`_DEFAULT_SCRIPT_TIMEOUT`); an agent-driven run is bounded by an *inactivity*
+  window, `HERMES_CRON_TIMEOUT` (default 600 s, `0` = unlimited) — not a fixed
+  wall-clock cap. Read the constants in `cron/scheduler.py` before designing
+  around them instead of trusting a remembered number.
+- **Invariants:** `.tick.lock` file prevents duplicate ticks across processes,
+  cron sessions pass `skip_memory=True` by default, and cron deliveries are
+  framed with a header/footer instead of being mirrored into the target
+  gateway session (keeps role alternation intact).
 
 User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
+
+#### When the job occasionally needs judgment
+
+Keep the job `no_agent` (zero tokens, deterministic) and let the script spawn
+`hermes chat --oneshot ... --query-file <brief>` only on the branch that needs
+reasoning, then verify the outcome from state rather than trusting the agent's
+`RESULT:`/`PUSHED:` lines. Full recipe, budget rules, brief contract and the
+fake-binary test matrix: `references/cron-agent-escalation.md`.
 
 #### Changing a backup job's cadence
 
