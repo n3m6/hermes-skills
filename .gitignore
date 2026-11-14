@@ -1,0 +1,18 @@
+# Hermes runtime / usage state — regenerated locally, not part of the skill library
+.usage.json
+.usage.json.lock
+*.lock
+.locks/
+.curator_state
+.curator_state/
+.curator_suppressed
+.curator_ledger.jsonl
+.curator_backups/
+.hub/
+.bundled_manifest
+
+# Python / editor cruft
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
