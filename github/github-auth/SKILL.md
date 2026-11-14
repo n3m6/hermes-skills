@@ -221,6 +221,16 @@ Note the scope: `setup-git` writes to **global** git config, so every `https://g
 push from this account uses that token from then on. If the user wants it scoped to one
 repo, unset the global key and set the same value with `git config --local`.
 
+#### Keeping a whole directory in sync with GitHub (weekly, conflict-aware)
+
+`scripts/skills-git-sync.sh` is a working implementation of this pattern: commit the live
+directory, fetch, rebase onto `origin/<branch>`, push — and on conflict hand the resolution
+to an agent (`hermes chat --oneshot` with a per-hunk brief), then verify the outcome from
+git state rather than trusting the agent's `RESULT:`/`PUSHED:` lines. The copy here is the
+single source of truth; the cron job runs it through a thin shim at
+`~/.hermes/scripts/skills-git-sync.sh`. Design notes and the fake-binary test matrix:
+`autonomous-ai-agents/hermes-agent/references/cron-agent-escalation.md`.
+
 ---
 
 ## Using the GitHub API Without gh

@@ -100,3 +100,11 @@ inject fake binaries through an env override such as `MYJOB_HERMES=/tmp/fake-her
 
 Assert with `grep -E '^(PASS|FAIL)'` in the harness itself; a harness that only prints
 output proves nothing.
+
+## Working implementation
+
+`github/github-auth/scripts/skills-git-sync.sh` in this skills tree is the filled-in
+version of this pattern: weekly reconcile of a skills directory with GitHub, agent-resolved
+conflicts, independent verification, safety refs pruned to the newest five pairs. The cron
+job runs it through a shim in `~/.hermes/scripts/`, so the file in the skills tree is the
+one source of truth — edit it there, not in the shim.
