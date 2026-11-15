@@ -227,9 +227,10 @@ repo, unset the global key and set the same value with `git config --local`.
 directory, fetch, rebase onto `origin/<branch>`, push — and on conflict hand the resolution
 to an agent (`hermes chat --oneshot` with a per-hunk brief), then verify the outcome from
 git state rather than trusting the agent's `RESULT:`/`PUSHED:` lines. The copy here is the
-single source of truth; the cron job runs it through a thin shim at
-`~/.hermes/scripts/skills-git-sync.sh`. Design notes and the fake-binary test matrix:
-`autonomous-ai-agents/hermes-agent/references/cron-agent-escalation.md`.
+single source of truth; the cron job reaches it through a **symlink** at
+`~/.hermes/scripts/skills-git-sync.sh` — never make that entry point a shim or a second
+copy, since only a link cannot drift. Design notes, harness fixture mechanics and the
+fake-binary test matrix: `autonomous-ai-agents/hermes-agent/references/cron-agent-escalation.md`.
 
 ---
 

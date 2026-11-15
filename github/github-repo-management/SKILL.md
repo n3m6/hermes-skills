@@ -138,6 +138,30 @@ curl -s -X POST \
   -d '{"name": "my-new-project", "private": false}'
 ```
 
+### Publishing an existing local directory (without publishing its junk)
+
+`git init && git add . && git push` in a live working directory ships whatever happens to be
+there — caches, telemetry sidecars, editor state, backup tarballs — and once it is pushed, a
+later `.gitignore` plus `git rm --cached` leaves those bytes in history and in every clone.
+Decide this before the first push, when a rewrite is still free:
+
+```bash
+# what will the world see across ALL history (not just the worktree)?
+git log --all --name-only --pretty=format: | sort -u | head -50
+git count-objects -vH | grep size-pack
+```
+
+If nothing has been pushed yet, squash to one clean import commit (`git checkout --orphan`)
+instead of stacking a delete commit on top — the full recipe, the `git rm --cached` order and
+the post-push 404 verification are in the `github-auth` skill, § "Before the first push to a
+brand-new repo".
+
+Two checks that save a round trip: the target repo often already exists and is empty
+(`gh repo view o/r --json isEmpty,defaultBranchRef`), and `git remote add origin` then fails
+with "remote origin already exists" — read `git remote -v` first and reuse the remote.
+Grepping the files for secrets before publishing a working directory is cheap; placeholder
+tokens in documentation are fine, real ones are not.
+
 ### From a Template
 
 **With gh:**

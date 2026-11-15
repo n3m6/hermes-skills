@@ -36,6 +36,12 @@ RESOLVER="${SKILLS_SYNC_RESOLVER:-1}"
 RESOLVE_BUDGET="${SKILLS_SYNC_BUDGET:-420}"
 
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# The resolver runs `git rebase --continue` with stdin/stdout on a pipe, so git falls back
+# to an editor and dies with "Terminal is dumb, but EDITOR unset" (cost one turn in the
+# 11-14 e2e). Pin both editors for the child; it inherits this environment.
+export GIT_EDITOR=true
+export GIT_SEQUENCE_EDITOR=:
+export GIT_TERMINAL_PROMPT=0
 
 say() { printf '%s\n' "$*"; }
 fail() { say "skills-sync: FAILED - $1"; exit "${2:-1}"; }
@@ -160,7 +166,9 @@ Your job:
    invent content neither side had.
 3. Delete every conflict marker (<<<<<<<, =======, >>>>>>>). Leave no duplicated sections.
 4. `git add` each resolved file, then `git rebase --continue` until the rebase ends.
-   Do not amend existing commits and do not create empty commits.
+   Do not amend existing commits and do not create empty commits. If `git rebase --continue`
+   complains about the editor ("Terminal is dumb, but EDITOR unset"), prefix it with
+   `GIT_EDITOR=true`.
 5. Verify before pushing: `git status --porcelain` empty, `git diff --diff-filter=U` empty,
    and `grep -rn '^<<<<<<<' . --exclude-dir=.git` finds nothing.
 6. `git push origin HEAD:main`. Never force-push, never rewrite history, never delete refs.

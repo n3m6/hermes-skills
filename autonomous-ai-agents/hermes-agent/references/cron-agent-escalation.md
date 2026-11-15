@@ -80,9 +80,15 @@ for a `no_agent` job.
 - Create rollback refs before handing over (e.g. one ref for each side of a conflict) and
   prune them to the newest N pairs so forensics survive without unbounded growth.
 - Re-check and abort any operation the agent left open after it exits, whatever it claims.
-- An unattended `hermes chat` needs the profile's approvals mode to be non-interactive
-  (`approvals.mode: off`); the directory restriction is an instruction, not a sandbox —
-  say that to the user rather than implying isolation.
+- Approvals do **not** have to be `off` for the child to act: editing files and running
+  `git add/commit/rebase/push` are unflagged, so they never reach the approval gate even
+  under `manual`. The per-context knobs (`approvals.single_query_mode`, `cron_mode`) only
+  bite on *flagged* actions — `rm -rf`, `curl | bash`, guarded writes. Get a verdict with
+  `hermes approvals test -- <cmd>` instead of asserting that a mode gates your job: a
+  resolver kept working with global `manual` and `single_query_mode: deny`, which is
+  exactly the kind of inherited assumption that gets written into a runbook unchecked.
+  The directory restriction is an instruction, not a sandbox — say that to the user rather
+  than implying isolation; a real boundary is a container or a separate unprivileged user.
 
 ## Test matrix before trusting it
 
@@ -101,10 +107,37 @@ inject fake binaries through an env override such as `MYJOB_HERMES=/tmp/fake-her
 Assert with `grep -E '^(PASS|FAIL)'` in the harness itself; a harness that only prints
 output proves nothing.
 
+### Fixture mechanics that make these tests lie
+
+Each of these yields a **false PASS**: the case runs, nothing looks wrong, and the behaviour
+you meant to exercise never happened. Assert the precondition as its own check ("sandbox
+really is mid-rebase") so a vacuous case fails loudly instead of passing.
+
+- **Fetch before simulating.** A fresh clone's `origin/<branch>` is stale, so a fixture that
+  pushes to the bare "remote" and then starts a rebase inside the working clone without
+  `git fetch` finds nothing to replay and never conflicts. Only hand-driven fixtures need
+  this — the job under test fetches itself.
+- **Re-seed per case, or build fixtures from unique content.** A fixture that edits fixed
+  text (`sed -i 's/^alpha v1/alpha REMOTE/'`) silently no-ops once an earlier case has
+  already rewritten that line: nothing commits, no conflict appears, and the assertion
+  passes for the wrong reason. Either `rm -rf` the whole sandbox for each case, or write a
+  nonce (`echo "local-$(date +%s%N)" > conflict.txt`) so the same path always clashes.
+- **`git commit -a` never stages a newly created fixture file.** When the conflict fixture
+  is a file that did not exist before, use `git add -A`.
+- **An add/add conflict is `AA` in `git status --porcelain`, not `UU`.** Detect unmerged
+  paths with `git diff --name-only --diff-filter=U`; grepping status for `^UU` misses
+  both-added and both-deleted conflicts entirely.
+
 ## Working implementation
 
 `github/github-auth/scripts/skills-git-sync.sh` in this skills tree is the filled-in
 version of this pattern: weekly reconcile of a skills directory with GitHub, agent-resolved
 conflicts, independent verification, safety refs pruned to the newest five pairs. The cron
-job runs it through a shim in `~/.hermes/scripts/`, so the file in the skills tree is the
-one source of truth — edit it there, not in the shim.
+job reaches it through a **symlink** at `~/.hermes/scripts/skills-git-sync.sh`, so the file
+in the skills tree is the single source of truth: edit it there, and never let the entry
+point become a copy — a shim or duplicate drifts, a symlink cannot. Keep it executable
+(`git ls-tree` shows `100755`) so a direct invocation works, not just `bash <path>`.
+
+Put that file under a **non-bundled** skill — grep `.bundled_manifest` in the skills root for
+the name; a bundled skill can be refreshed by a Hermes update and take your additions with
+it, while a hub- or agent-owned skill keeps them.
