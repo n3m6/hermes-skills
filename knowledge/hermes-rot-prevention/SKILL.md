@@ -15,7 +15,7 @@ metadata:
 ## When to Use
 
 When the user wants their Hermes install to stay healthy over months: small
-memory, self-pruning skills, a nightly "dream loop", and tiered backups.
+memory, self-pruning skills, a weekly "dream loop", and tiered backups.
 Most of this is NATIVE Hermes — configure it, do not rebuild it.
 
 ## What is already native (verify before building anything)
@@ -127,7 +127,18 @@ Non-native, user-built: the Obsidian-style reference vault (a directory + a skil
   Known-good one-liner:
   `SELECT id, started_at, last_activity_at, message_count, tool_call_count, estimated_cost_usd, end_reason, title FROM sessions ORDER BY started_at DESC LIMIT 30`.
   Validated 2026-10-17: assembling the SELECT from the PRAGMA output worked first try, no retry.
-- The dream log is named for the last day it REVIEWS, not the run date: on weekly cadence the
+- **A `memory` op can be refused twice in a row, for two unrelated reasons — read the text.**
+  First the content matched the `ssh_access` threat pattern: memory is injected into every
+  system prompt, so any credential-path wording (`~/.ssh/…`, `IdentityFile`, a
+  `credential.helper` line) is treated as an injection payload. Reword to the fact without
+  the literal path and put the exact strings in a vault doc. Then the char limit refuses the
+  reworded op — and that one is only checked on the **batch result**, so send ONE `operations`
+  array that removes/patches stale entries *and* adds, never an add followed by a retry.
+- **The char count shown in a session prompt is not `wc -m` on the file.** 2026-11-15 the
+  injected header said 2,185/2,200 while `MEMORY.md` was **2,210** bytes — over budget for an
+  unknown number of days, and invisible because every prompt looked compliant. Measure the
+  file (`wc -m ~/.hermes/memories/MEMORY.md`) as the first step of triage, not the header.
+- The dream log is named for the last day it reviews, not the run date: on weekly cadence the
   Sunday 03:00 run writes `dream/<Saturday>.md` covering the prior 7 days, so that file does not
   exist when the run starts (checking it blind cost a call). The run treats the newest existing
   `dream/*.md` as the start of its window.
