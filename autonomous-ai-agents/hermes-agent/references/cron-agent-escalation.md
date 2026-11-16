@@ -107,6 +107,14 @@ inject fake binaries through an env override such as `MYJOB_HERMES=/tmp/fake-her
 Assert with `grep -E '^(PASS|FAIL)'` in the harness itself; a harness that only prints
 output proves nothing.
 
+**Fixture design decides what a correct resolution looks like.** A conflict where both
+sides rewrote the *same* passage is correctly resolved by keeping ONE side (remote when it
+is the newer correction), so asserting "both sides survive" there fails a healthy resolver.
+Assert both-sides-survive only on an *additive* conflict: have each side append a different
+new section at the same spot (e.g. two distinct `##` sections at EOF) and check both
+headings plus the untouched base content. Test both shapes — choosing a side and keeping
+both — because they exercise different rules in the brief.
+
 ### Fixture mechanics that make these tests lie
 
 Each of these yields a **false PASS**: the case runs, nothing looks wrong, and the behaviour

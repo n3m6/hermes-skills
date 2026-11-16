@@ -1,7 +1,7 @@
 ---
 name: github-auth
 description: "GitHub auth setup: HTTPS tokens, SSH keys, gh CLI login."
-version: 1.1.0
+version: 1.2.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -35,7 +35,8 @@ git config --global credential.helper 2>/dev/null || echo "no git credential hel
 **Decision tree:**
 1. If `gh auth status` shows authenticated → use `gh` for API work, then wire git to that token (§ "gh is already logged in" below) instead of minting a PAT
 2. If `gh` is installed but not authenticated → use "gh auth" method below
-3. If `gh` is not installed → use "git-only" method below (no sudo needed)
+3. If `gh` is not installed → install the release tarball into `~/.local/bin`
+   (no root needed, § "No root? Install gh locally" below); git-only Method 1 is the fallback
 
 **Authenticated `gh` does not mean `git` can push.** `gh auth status` also reports a
 "Git operations protocol" line (often `ssh`); that is gh's own preference, not git's
@@ -171,6 +172,26 @@ git config --global user.email "their-email@example.com"
 
 If `gh` is installed, it handles both API access and git credentials in one step.
 
+### No root? Install gh locally
+
+A `sudo`-less box is not a reason to fall back to git-only. The release tarball
+needs no package manager and no root:
+
+```bash
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VER=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
+  | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)
+curl -fsSL "https://github.com/cli/cli/releases/download/v${VER}/gh_${VER}_linux_${ARCH}.tar.gz" -o gh.tar.gz
+tar xzf gh.tar.gz
+mkdir -p ~/.local/bin
+cp "gh_${VER}_linux_${ARCH}/bin/gh" ~/.local/bin/gh && chmod +x ~/.local/bin/gh
+gh --version   # if this fails, ~/.local/bin is not on PATH for new shells
+```
+
+The binary buys `gh auth setup-git` and the API porcelain, and the credential
+helper it writes keeps working in cron as long as `~/.local/bin` is on that
+job's PATH — which is why the sync script sets PATH explicitly.
+
 ### Interactive Browser Login (Desktop)
 
 ```bash
@@ -194,6 +215,15 @@ gh auth setup-git
 ```bash
 gh auth status
 ```
+
+#### No token to paste and no browser on the agent side? Use the device flow
+
+When the user has nothing to hand you and this session cannot open their
+browser, run GitHub's OAuth device flow: you show a short code, they approve it
+at `github.com/login/device`, and the token goes straight into gh. Never ask
+for a token, password, or 2FA code in chat. The polling loop, scope set, and
+the keyring-hang fallback (write `~/.config/gh/hosts.yml` directly) are in
+`references/device-flow-login.md`.
 
 #### gh is already logged in? Wire git to it instead of minting a PAT
 
@@ -238,6 +268,14 @@ symlinks, so writing "through" a symlinked entry point silently overwrites the s
 source-of-truth script — `rm` the link before writing the wrapper.
 Design notes, harness fixture mechanics and the
 fake-binary test matrix: `autonomous-ai-agents/hermes-agent/references/cron-agent-escalation.md`.
+
+The first run on a directory that is not yet a checkout — or that must keep
+files the remote does not track — needs the attach procedure, not the script:
+`references/directory-sync-bootstrap.md` covers the backup, the
+`git reset --mixed` + `git checkout -- .` attach that materializes remote files
+without deleting local-only ones, per-file conflict direction (frontmatter
+`version:` beats mtimes), the `no_agent` cron wiring, and the verification
+pitfalls that produce false MISMATCH reports.
 
 ---
 
@@ -340,4 +378,4 @@ gh repo view <owner>/<repo> --json isEmpty,defaultBranchRef,pushedAt
 | `ssh: connect to host github.com port 22: Connection refused` | Try SSH over HTTPS port: add `Host github.com` with `Port 443` and `Hostname ssh.github.com` to `~/.ssh/config` |
 | Credentials not persisting | Check `git config --global credential.helper` — must be `store` or `cache` |
 | Multiple GitHub accounts | Use SSH with different keys per host alias in `~/.ssh/config`, or per-repo credential URLs |
-| `gh: command not found` + no sudo | Use git-only Method 1 above — no installation needed |
+| `gh: command not found` + no sudo | Install the release tarball into `~/.local/bin` (Method 2) — no root needed; git-only Method 1 is the fallback |

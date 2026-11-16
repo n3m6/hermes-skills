@@ -1,7 +1,7 @@
 ---
 name: hermes-agent
 description: "Use, configure, theme, extend, and orchestrate Hermes Agent."
-version: 3.3.0
+version: 3.4.0
 author: Hermes Agent + Teknium
 license: MIT
 platforms: [linux, macos, windows]
@@ -95,6 +95,7 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 | Provider setup, API keys, OAuth | `references/providers-and-models.md` |
 | config.yaml sections, toolsets, voice/STT/TTS | `references/configuration.md` |
 | AGENTS.md / .hermes.md / CLAUDE.md project rules | `references/project-context-files.md` |
+| Change the agent's personality/tone/voice — "set up your personality", SOUL.md, `/personality` presets | `references/personality-and-soul.md` |
 | Secret redaction, PII, approval modes, "reset permissions" | `references/security-privacy.md` |
 | Delegation, cron, curator, kanban | `references/background-systems.md` |
 | `hermes project` workspaces, multi-folder projects, desktop sidebar groups | `references/projects-and-folders.md` |

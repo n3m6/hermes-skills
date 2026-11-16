@@ -1,7 +1,7 @@
 ---
 name: github
 description: "GitHub via gh CLI: PRs, issues, reviews, repos, auth."
-version: 2.1.0
+version: 2.2.0
 author: Ben Barclay (benbarclay), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -51,6 +51,11 @@ Supporting assets: `scripts/gh-env.sh` + `scripts/git-credential-token.py`
 - Capability questions ("can agents reach my private repos?") are answered
   from a live check — `viewerPermission` plus a real non-interactive clone —
   never from token scopes alone; state what was not tested.
+- Enumerate access with
+  `gh api 'user/repos?per_page=100&affiliation=owner,collaborator,organization_member' --paginate`;
+  `gh repo list` covers only repos you own. Its `--json visibility` values are
+  `PRIVATE`/`PUBLIC` (uppercase), so filter the `isPrivate` boolean instead of
+  matching lowercase strings.
 
 ## Verification
 
